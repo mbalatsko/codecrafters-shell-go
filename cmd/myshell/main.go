@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,13 @@ type ShellCtx struct {
 	Builtins    map[string]Executor
 	PathFolders []string
 	CurrentDir  string
+	Serr        string
+	Sout        string
+}
+
+func (ctx *ShellCtx) Reset() {
+	ctx.Serr = ""
+	ctx.Sout = ""
 }
 
 func IsExecAny(mode os.FileMode) bool {
@@ -55,9 +63,9 @@ func ExitExecutor(_ *ShellCtx, args []string) error {
 	return nil
 }
 
-func EchoExecutor(_ *ShellCtx, args []string) error {
+func EchoExecutor(shellCtx *ShellCtx, args []string) error {
 	message := strings.Join(args, " ")
-	fmt.Println(message)
+	shellCtx.Sout = message + "\n"
 	return nil
 }
 
@@ -68,21 +76,21 @@ func TypeExecutor(shellCtx *ShellCtx, args []string) error {
 	command := args[0]
 	_, found := shellCtx.Builtins[command]
 	if found {
-		fmt.Printf("%s is a shell builtin\n", command)
+		shellCtx.Sout = fmt.Sprintf("%s is a shell builtin\n", command)
 	} else {
 		execPath, found := SearchExecInPathFolders(command, shellCtx.PathFolders)
 
 		if found {
-			fmt.Printf("%s is %s\n", command, execPath)
+			shellCtx.Sout = fmt.Sprintf("%s is %s\n", command, execPath)
 		} else {
-			fmt.Printf("%s: not found\n", command)
+			shellCtx.Serr = fmt.Sprintf("%s: not found\n", command)
 		}
 	}
 	return nil
 }
 
 func PwdExecutor(shellCtx *ShellCtx, _ []string) error {
-	fmt.Println(shellCtx.CurrentDir)
+	shellCtx.Sout = fmt.Sprintln(shellCtx.CurrentDir)
 	return nil
 }
 
@@ -103,25 +111,25 @@ func ChangeDirExecutor(shellCtx *ShellCtx, args []string) error {
 	}
 
 	if _, err := os.Stat(destPath); os.IsNotExist(err) {
-		fmt.Printf("cd: %s: No such file or directory\n", destPath)
+		shellCtx.Serr = fmt.Sprintf("cd: %s: No such file or directory\n", destPath)
 	} else {
 		shellCtx.CurrentDir = destPath
 	}
 	return nil
 }
 
-func RunExternalCommand(command string, args []string) error {
+func RunExternalCommand(command string, args []string, shellCtx *ShellCtx) error {
 	cmd := exec.Command(command, args...)
 	output, err := cmd.Output()
 	if err != nil {
 		serr, ok := err.(*exec.ExitError)
 		if ok {
-			output = serr.Stderr
+			shellCtx.Serr = string(serr.Stderr)
 		} else {
 			return err
 		}
 	}
-	fmt.Print(string(output))
+	shellCtx.Sout = string(output)
 	return nil
 }
 
@@ -235,6 +243,9 @@ func main() {
 
 	shellCtx := &ShellCtx{Builtins: builtins, PathFolders: pathFolders, CurrentDir: currentDir}
 	for {
+		shellCtx.Serr = ""
+		shellCtx.Sout = ""
+
 		fmt.Fprint(os.Stdout, "$ ")
 
 		// Wait for user input
@@ -246,10 +257,59 @@ func main() {
 		commandWithArgs = commandWithArgs[:len(commandWithArgs)-1]
 		parsedCommand := ParseArgs(commandWithArgs)
 
+		if len(parsedCommand) == 0 {
+			continue
+		}
+
 		args := make([]string, 0)
 		command := parsedCommand[0]
+
+		sOut := os.Stdout
+		sErr := os.Stderr
+
 		if len(parsedCommand) > 0 {
 			args = parsedCommand[1:]
+
+			cutIdx := -1
+			for i := range args {
+				if args[i] == ">" || args[i] == "1>" {
+					sOut, err = os.OpenFile(args[i+1], os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
+					if err != nil {
+						panic(err)
+					}
+					if cutIdx == -1 {
+						cutIdx = i
+					}
+				} else if args[i] == ">>" || args[i] == "1>>" {
+					sOut, err = os.OpenFile(args[i+1], os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+					if err != nil {
+						panic(err)
+					}
+					if cutIdx == -1 {
+						cutIdx = i
+					}
+				} else if args[i] == "2>" {
+					sErr, err = os.OpenFile(args[i+1], os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
+					if err != nil {
+						panic(err)
+					}
+					if cutIdx == -1 {
+						cutIdx = i
+					}
+				} else if args[i] == "2>>" {
+					sErr, err = os.OpenFile(args[i+1], os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+					if err != nil {
+						panic(err)
+					}
+					if cutIdx == -1 {
+						cutIdx = i
+					}
+				}
+			}
+
+			if cutIdx != -1 {
+				args = args[:cutIdx]
+			}
 		}
 
 		executor, found := shellCtx.Builtins[command]
@@ -261,13 +321,29 @@ func main() {
 		} else {
 			execPath, found := SearchExecInPathFolders(command, shellCtx.PathFolders)
 			if found {
-				err := RunExternalCommand(execPath, args)
+				err := RunExternalCommand(execPath, args, shellCtx)
 				if err != nil {
 					fmt.Printf("Failed execute external command %s with args %s: %s\n", execPath, args, err.Error())
 				}
 			} else {
 				fmt.Printf("%s: command not found\n", command)
 			}
+		}
+
+		if _, err := io.Copy(sOut, strings.NewReader(shellCtx.Sout)); err != nil {
+			fmt.Printf("Failed to copy to stdout: %s", err.Error())
+		}
+
+		if _, err := io.Copy(sErr, strings.NewReader(shellCtx.Serr)); err != nil {
+			fmt.Printf("Failed to copy to stderr: %s", err.Error())
+		}
+
+		if sOut != os.Stdout {
+			sOut.Close()
+		}
+
+		if sErr != os.Stderr {
+			sErr.Close()
 		}
 	}
 }
