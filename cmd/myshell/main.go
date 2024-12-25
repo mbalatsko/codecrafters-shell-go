@@ -8,9 +8,12 @@ import (
 	"strings"
 )
 
-type Executor func([]string) error
+type Executor func(*ShellCtx, []string) error
+type ShellCtx struct {
+	Builtins map[string]Executor
+}
 
-func ExitExecutor(args []string) error {
+func ExitExecutor(_ *ShellCtx, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("exit command takes exactly 1 argument of type int")
 	}
@@ -22,18 +25,32 @@ func ExitExecutor(args []string) error {
 	return nil
 }
 
-func EchoExecutor(args []string) error {
+func EchoExecutor(_ *ShellCtx, args []string) error {
 	message := strings.Join(args, " ")
 	fmt.Println(message)
 	return nil
 }
 
-var builtins = map[string]Executor{
-	"exit": ExitExecutor,
-	"echo": EchoExecutor,
+func TypeExecutor(shellCtx *ShellCtx, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("exit command takes exactly 1 argument of type string")
+	}
+	_, found := shellCtx.Builtins[args[0]]
+	if found {
+		fmt.Printf("%s is a shell builtin\n", args[0])
+	} else {
+		fmt.Printf("%s: not found\n", args[0])
+	}
+	return nil
 }
 
 func main() {
+	var builtins = map[string]Executor{
+		"exit": ExitExecutor,
+		"echo": EchoExecutor,
+		"type": TypeExecutor,
+	}
+	shellCtx := &ShellCtx{Builtins: builtins}
 	for {
 		fmt.Fprint(os.Stdout, "$ ")
 
@@ -41,7 +58,7 @@ func main() {
 		commandWithArgs, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		commandWithArgs = commandWithArgs[:len(commandWithArgs)-1]
 		if err != nil {
-			fmt.Printf("Failed to read input: %s", err.Error())
+			fmt.Printf("Failed to read input: %s\n", err.Error())
 			os.Exit(1)
 		}
 
@@ -59,10 +76,9 @@ func main() {
 		if !found {
 			fmt.Printf("%s: command not found\n", command)
 		} else {
-			err = executor(args)
+			err = executor(shellCtx, args)
 			if err != nil {
-				fmt.Printf("Failed execute command %s with args %s: %s", command, args, err.Error())
-				os.Exit(1)
+				fmt.Printf("Failed execute command %s with args %s: %s\n", command, args, err.Error())
 			}
 		}
 	}
