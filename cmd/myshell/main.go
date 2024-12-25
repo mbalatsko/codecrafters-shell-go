@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -78,6 +79,21 @@ func TypeExecutor(shellCtx *ShellCtx, args []string) error {
 	return nil
 }
 
+func RunExternalCommand(command string, args []string) error {
+	cmd := exec.Command(command, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		serr, ok := err.(*exec.ExitError)
+		if ok {
+			output = serr.Stderr
+		} else {
+			return err
+		}
+	}
+	fmt.Print(string(output))
+	return nil
+}
+
 func main() {
 	var builtins = map[string]Executor{
 		"exit": ExitExecutor,
@@ -108,6 +124,10 @@ func main() {
 		commandWithArgsParts := strings.Split(commandWithArgs, " ")
 		command := commandWithArgsParts[0]
 
+		if command == "" {
+			continue
+		}
+
 		var args []string
 		if len(commandWithArgsParts) > 1 {
 			args = commandWithArgsParts[1:]
@@ -115,13 +135,21 @@ func main() {
 			args = make([]string, 0)
 		}
 
-		executor, found := builtins[command]
-		if !found {
-			fmt.Printf("%s: command not found\n", command)
-		} else {
+		executor, found := shellCtx.Builtins[command]
+		if found {
 			err = executor(shellCtx, args)
 			if err != nil {
 				fmt.Printf("Failed execute command %s with args %s: %s\n", command, args, err.Error())
+			}
+		} else {
+			execPath, found := SearchExecInPathFolders(command, shellCtx.PathFolders)
+			if found {
+				err := RunExternalCommand(execPath, args)
+				if err != nil {
+					fmt.Printf("Failed execute external command %s with args %s: %s\n", execPath, args, err.Error())
+				}
+			} else {
+				fmt.Printf("%s: command not found\n", command)
 			}
 		}
 	}
