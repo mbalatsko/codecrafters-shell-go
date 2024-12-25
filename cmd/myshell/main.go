@@ -6,10 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/google/shlex"
 )
 
 type Executor func(*ShellCtx, []string) error
@@ -126,8 +125,90 @@ func RunExternalCommand(command string, args []string) error {
 	return nil
 }
 
-func ParseInput(input string) ([]string, error) {
-	return shlex.Split(input)
+func ParseArgs(input string) []string {
+	input = strings.TrimSpace(input)
+	args := []string{}
+	doubleQuotedSpecialCharacters := []rune{'$', '\\', '"'}
+	const (
+		isSingleQouted = iota
+		isDoubleQouted
+		isEscaped
+	)
+	currentState := isEscaped
+	skipNext := false
+	buffer := ""
+	for i, arg := range input {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if i == 0 {
+			if arg == '"' {
+				currentState = isDoubleQouted
+				continue
+			} else if arg == '\'' {
+				currentState = isSingleQouted
+				continue
+			}
+		}
+		switch arg {
+		case '"':
+			if currentState == isEscaped {
+				currentState = isDoubleQouted
+				buffer += string(input[i+1])
+				skipNext = true
+			} else if currentState == isDoubleQouted {
+				currentState = isEscaped
+			} else {
+				buffer += string(arg)
+			}
+		case '\'':
+			if currentState == isEscaped {
+				currentState = isSingleQouted
+				buffer += string(input[i+1])
+				skipNext = true
+			} else if currentState == isSingleQouted {
+				currentState = isEscaped
+			} else {
+				buffer += string(arg)
+			}
+		case '\\':
+			if currentState == isEscaped {
+				buffer += string(input[i+1])
+				skipNext = true
+			} else if currentState == isDoubleQouted {
+				contains := slices.Contains(doubleQuotedSpecialCharacters, rune(input[i+1]))
+				if contains {
+					buffer += string(input[i+1])
+					skipNext = true
+				} else {
+					buffer += string(arg)
+				}
+			} else if currentState == isSingleQouted {
+				buffer += string(arg)
+			}
+		case ' ':
+			if currentState == isEscaped {
+				args = append(args, buffer)
+				buffer = ""
+			} else {
+				buffer += string(arg)
+			}
+		default:
+			buffer += string(arg)
+		}
+	}
+	if len(buffer) > 0 {
+		args = append(args, buffer)
+	}
+	res := []string{}
+	for _, arg := range args {
+		if len(arg) > 0 {
+			res = append(res, arg)
+		}
+	}
+
+	return res
 }
 
 func main() {
@@ -163,11 +244,7 @@ func main() {
 			os.Exit(1)
 		}
 		commandWithArgs = commandWithArgs[:len(commandWithArgs)-1]
-		parsedCommand, err := ParseInput(commandWithArgs)
-		if err != nil {
-			fmt.Printf("Failed to parse input: %s\n", err.Error())
-			os.Exit(1)
-		}
+		parsedCommand := ParseArgs(commandWithArgs)
 
 		args := make([]string, 0)
 		command := parsedCommand[0]
