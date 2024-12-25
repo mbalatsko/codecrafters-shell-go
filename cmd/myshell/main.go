@@ -85,6 +85,20 @@ func PwdExecutor(shellCtx *ShellCtx, _ []string) error {
 	return nil
 }
 
+func ChangeDirExecutor(shellCtx *ShellCtx, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("cd command takes exactly 1 argument of type string")
+	}
+
+	destPath := args[0]
+	if _, err := os.Stat(destPath); os.IsNotExist(err) {
+		fmt.Printf("cd: %s: No such file or directory\n", destPath)
+	} else {
+		shellCtx.CurrentDir = destPath
+	}
+	return nil
+}
+
 func RunExternalCommand(command string, args []string) error {
 	cmd := exec.Command(command, args...)
 	output, err := cmd.Output()
@@ -106,6 +120,7 @@ func main() {
 		"echo": EchoExecutor,
 		"type": TypeExecutor,
 		"pwd":  PwdExecutor,
+		"cd":   ChangeDirExecutor,
 	}
 
 	var pathFolders []string
