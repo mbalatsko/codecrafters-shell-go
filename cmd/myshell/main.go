@@ -91,6 +91,16 @@ func ChangeDirExecutor(shellCtx *ShellCtx, args []string) error {
 	}
 
 	destPath := args[0]
+	if destPath[0] == '~' {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		destPath = strings.Replace(destPath, "~", homeDir, 1)
+	} else if destPath[0] == '.' {
+		destPath = filepath.Join(shellCtx.CurrentDir, destPath)
+	}
+
 	if _, err := os.Stat(destPath); os.IsNotExist(err) {
 		fmt.Printf("cd: %s: No such file or directory\n", destPath)
 	} else {
