@@ -14,6 +14,7 @@ type Executor func(*ShellCtx, []string) error
 type ShellCtx struct {
 	Builtins    map[string]Executor
 	PathFolders []string
+	CurrentDir  string
 }
 
 func IsExecAny(mode os.FileMode) bool {
@@ -79,6 +80,11 @@ func TypeExecutor(shellCtx *ShellCtx, args []string) error {
 	return nil
 }
 
+func PwdExecutor(shellCtx *ShellCtx, _ []string) error {
+	fmt.Println(shellCtx.CurrentDir)
+	return nil
+}
+
 func RunExternalCommand(command string, args []string) error {
 	cmd := exec.Command(command, args...)
 	output, err := cmd.Output()
@@ -109,7 +115,13 @@ func main() {
 		pathFolders = make([]string, 0)
 	}
 
-	shellCtx := &ShellCtx{Builtins: builtins, PathFolders: pathFolders}
+	exPath, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	currentDir := filepath.Dir(exPath)
+
+	shellCtx := &ShellCtx{Builtins: builtins, PathFolders: pathFolders, CurrentDir: currentDir}
 	for {
 		fmt.Fprint(os.Stdout, "$ ")
 
