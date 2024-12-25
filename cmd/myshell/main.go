@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/google/shlex"
 )
 
 type Executor func(*ShellCtx, []string) error
@@ -124,6 +126,10 @@ func RunExternalCommand(command string, args []string) error {
 	return nil
 }
 
+func ParseInput(input string) ([]string, error) {
+	return shlex.Split(input)
+}
+
 func main() {
 	var builtins = map[string]Executor{
 		"exit": ExitExecutor,
@@ -152,24 +158,21 @@ func main() {
 
 		// Wait for user input
 		commandWithArgs, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		commandWithArgs = commandWithArgs[:len(commandWithArgs)-1]
 		if err != nil {
 			fmt.Printf("Failed to read input: %s\n", err.Error())
 			os.Exit(1)
 		}
-
-		commandWithArgsParts := strings.Split(commandWithArgs, " ")
-		command := commandWithArgsParts[0]
-
-		if command == "" {
-			continue
+		commandWithArgs = commandWithArgs[:len(commandWithArgs)-1]
+		parsedCommand, err := ParseInput(commandWithArgs)
+		if err != nil {
+			fmt.Printf("Failed to parse input: %s\n", err.Error())
+			os.Exit(1)
 		}
 
-		var args []string
-		if len(commandWithArgsParts) > 1 {
-			args = commandWithArgsParts[1:]
-		} else {
-			args = make([]string, 0)
+		args := make([]string, 0)
+		command := parsedCommand[0]
+		if len(parsedCommand) > 0 {
+			args = parsedCommand[1:]
 		}
 
 		executor, found := shellCtx.Builtins[command]
