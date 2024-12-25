@@ -22,8 +22,15 @@ func ExitExecutor(args []string) error {
 	return nil
 }
 
+func EchoExecutor(args []string) error {
+	message := strings.Join(args, " ")
+	fmt.Println(message)
+	return nil
+}
+
 var builtins = map[string]Executor{
 	"exit": ExitExecutor,
+	"echo": EchoExecutor,
 }
 
 func main() {
