@@ -105,6 +105,7 @@ func main() {
 		"exit": ExitExecutor,
 		"echo": EchoExecutor,
 		"type": TypeExecutor,
+		"pwd":  PwdExecutor,
 	}
 
 	var pathFolders []string
@@ -115,11 +116,10 @@ func main() {
 		pathFolders = make([]string, 0)
 	}
 
-	exPath, err := os.Executable()
+	currentDir, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
-	currentDir := filepath.Dir(exPath)
 
 	shellCtx := &ShellCtx{Builtins: builtins, PathFolders: pathFolders, CurrentDir: currentDir}
 	for {
